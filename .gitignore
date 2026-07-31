@@ -1,0 +1,19 @@
+.env
+credentials.json
+token.json
+.tmp/*
+!.tmp/.gitkeep
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# licensed vendor docs and private case notes - never commit
+docs/*
+!docs/.gitkeep
+runbooks/*
+!runbooks/.gitkeep
+
+# local vector store - rebuildable via `payments index`
+.index/*
+!.index/.gitkeep
