@@ -99,6 +99,34 @@ def test_type_filter_restricts_sources(corpus):
     assert {h.source_type for h in hits} == {"doc"}
 
 
+def test_empty_corpus_never_loads_the_model(tmp_path, monkeypatch):
+    """Indexing nothing must not trigger the embedding-model download."""
+    from postilion_agent.ingest import embed, indexer
+
+    docs = tmp_path / "docs"
+    runbooks = tmp_path / "runbooks"
+    docs.mkdir()
+    runbooks.mkdir()
+
+    monkeypatch.setenv("DOCS_DIR", str(docs))
+    monkeypatch.setenv("RUNBOOKS_DIR", str(runbooks))
+    monkeypatch.setenv("INDEX_DIR", str(tmp_path / ".index"))
+    get_settings.cache_clear()
+
+    def explode() -> int:
+        raise AssertionError("the embedding model must not be loaded for an empty corpus")
+
+    monkeypatch.setattr(embed, "_model", explode)
+
+    try:
+        report = indexer.build_index()
+        assert report.added == []
+        assert report.unchanged == 0
+        assert report.skipped == []
+    finally:
+        get_settings.cache_clear()
+
+
 def test_search_without_an_index_raises(tmp_path, monkeypatch):
     from postilion_agent.retrieval import IndexNotBuiltError, search
 

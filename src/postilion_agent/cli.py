@@ -34,10 +34,25 @@ def doctor() -> None:
 @app.command()
 def index() -> None:
     """Build or incrementally update the local vector index from docs/ and runbooks/."""
+    from postilion_agent.ingest.embed import EmbeddingModelUnavailable
     from postilion_agent.ingest.indexer import build_index
 
+    settings = get_settings()
+
     typer.echo("Indexing corpus...")
-    report = build_index()
+    try:
+        report = build_index()
+    except EmbeddingModelUnavailable as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+
+    if not any((report.added, report.updated, report.removed, report.unchanged, report.skipped)):
+        typer.echo(
+            f"Nothing to index - no documents found under {settings.docs_dir}/ or "
+            f"{settings.runbooks_dir}/.\n"
+            "Add Postilion documentation (.pdf, .chm, .html, .pptx, .md, .txt) and re-run."
+        )
+        return
 
     typer.echo(f"Added:     {len(report.added)}")
     typer.echo(f"Updated:   {len(report.updated)}")
@@ -59,6 +74,7 @@ def search(
     json_output: bool = typer.Option(False, "--json", help="Emit JSON instead of text blocks."),
 ) -> None:
     """Search the indexed corpus and print the most relevant chunks with citations."""
+    from postilion_agent.ingest.embed import EmbeddingModelUnavailable
     from postilion_agent.retrieval import IndexNotBuiltError, format_hits
     from postilion_agent.retrieval import search as run_search
 
@@ -68,7 +84,7 @@ def search(
 
     try:
         hits = run_search(query, top_k=top_k, source_type=source_type)
-    except IndexNotBuiltError as exc:
+    except (IndexNotBuiltError, EmbeddingModelUnavailable) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
 
