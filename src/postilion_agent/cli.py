@@ -1,4 +1,6 @@
+import json as jsonlib
 from pathlib import Path
+from typing import Optional
 
 import typer
 
@@ -32,10 +34,25 @@ def doctor() -> None:
 @app.command()
 def index() -> None:
     """Build or incrementally update the local vector index from docs/ and runbooks/."""
+    from postilion_agent.ingest.embed import EmbeddingModelUnavailable
     from postilion_agent.ingest.indexer import build_index
 
+    settings = get_settings()
+
     typer.echo("Indexing corpus...")
-    report = build_index()
+    try:
+        report = build_index()
+    except EmbeddingModelUnavailable as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+
+    if not any((report.added, report.updated, report.removed, report.unchanged, report.skipped)):
+        typer.echo(
+            f"Nothing to index - no documents found under {settings.docs_dir}/ or "
+            f"{settings.runbooks_dir}/.\n"
+            "Add Postilion documentation (.pdf, .chm, .html, .pptx, .md, .txt) and re-run."
+        )
+        return
 
     typer.echo(f"Added:     {len(report.added)}")
     typer.echo(f"Updated:   {len(report.updated)}")
@@ -45,6 +62,58 @@ def index() -> None:
         typer.echo(f"Skipped:   {len(report.skipped)}")
         for path, reason in report.skipped:
             typer.echo(f"  - {path}: {reason}")
+
+
+@app.command()
+def search(
+    query: str = typer.Argument(..., help="Symptom or topic to search the corpus for."),
+    top_k: int = typer.Option(8, "--top-k", "-k", help="Number of chunks to return."),
+    source_type: Optional[str] = typer.Option(
+        None, "--type", help="Restrict to a single source type: 'doc' or 'runbook'."
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Emit JSON instead of text blocks."),
+) -> None:
+    """Search the indexed corpus and print the most relevant chunks with citations."""
+    from postilion_agent.ingest.embed import EmbeddingModelUnavailable
+    from postilion_agent.retrieval import IndexNotBuiltError, format_hits
+    from postilion_agent.retrieval import search as run_search
+
+    if source_type and source_type not in {"doc", "runbook"}:
+        typer.echo("--type must be 'doc' or 'runbook'.", err=True)
+        raise typer.Exit(2)
+
+    try:
+        hits = run_search(query, top_k=top_k, source_type=source_type)
+    except (IndexNotBuiltError, EmbeddingModelUnavailable) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+
+    if not hits:
+        typer.echo(
+            "No relevant material found for that query. Try rephrasing, or add "
+            "documentation to docs/ or runbooks/ and re-run `payments index`.",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    if json_output:
+        payload = [
+            {
+                "source": hit.citation,
+                "source_path": hit.source_path,
+                "source_type": hit.source_type,
+                "heading_path": hit.heading_path,
+                "page": hit.page,
+                "slide": hit.slide,
+                "score": round(hit.score, 4),
+                "text": hit.text,
+            }
+            for hit in hits
+        ]
+        typer.echo(jsonlib.dumps(payload, indent=2))
+        return
+
+    typer.echo(format_hits(hits))
 
 
 if __name__ == "__main__":

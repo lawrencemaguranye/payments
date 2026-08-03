@@ -51,7 +51,6 @@ def build_index(settings: Settings | None = None) -> IndexReport:
     settings.index_dir.mkdir(parents=True, exist_ok=True)
 
     manifest = _load_manifest(settings)
-    table = get_table(connect())
 
     sources: list[tuple[Path, str, str]] = []
     for root, source_type in ((settings.docs_dir, "doc"), (settings.runbooks_dir, "runbook")):
@@ -60,6 +59,14 @@ def build_index(settings: Settings | None = None) -> IndexReport:
             sources.append((path, key, source_type))
 
     report = IndexReport()
+
+    # Opening the table needs the embedding dimension, which loads the model - a
+    # large download on first use. With nothing to index and nothing to prune there
+    # is no reason to pay for it, so bail before touching it.
+    if not sources and not manifest:
+        return report
+
+    table = get_table(connect())
     seen_keys: set[str] = set()
 
     for path, key, source_type in sources:

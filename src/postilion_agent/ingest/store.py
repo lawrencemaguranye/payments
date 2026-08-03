@@ -26,6 +26,11 @@ def connect() -> lancedb.DBConnection:
     return lancedb.connect(str(get_settings().index_dir / "lancedb"))
 
 
+def table_exists(db: lancedb.DBConnection | None = None) -> bool:
+    db = db or connect()
+    return TABLE_NAME in db.table_names()
+
+
 def get_table(db: lancedb.DBConnection | None = None) -> lancedb.table.Table:
     db = db or connect()
     if TABLE_NAME in db.table_names():
